@@ -1,0 +1,15 @@
+/.idea/
+.DS_Store
+/logs/
+*.zip
+*.zip.sha256
+.env
+.env.local
+/.runtime/
+data/records/*.json
+!data/records/.gitkeep
+/artifacts/
+/cache/
+/typechain-types/
+/.openzeppelin/
+npm-debug.log*
