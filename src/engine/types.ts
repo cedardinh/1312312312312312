@@ -35,22 +35,12 @@ export const upgradeBatchSchema = z.object({
   dryRun: z.boolean().default(false),
 });
 
-export const importBaselineSchema = z.object({
-  network: networkSchema,
-  sourceSetId: z.string().uuid(),
-  contractName: z.enum(["TopazPayment", "TopazLifecycle", "TopazContacts"]),
-  proxyAddress: address,
-  dryRun: z.boolean().default(false),
-});
-
 export type NetworkInput = z.infer<typeof networkSchema>;
 export type DeploySuiteInput = z.infer<typeof deploySuiteSchema>;
 export type UpgradeBatchInput = z.infer<typeof upgradeBatchSchema>;
-export type ImportBaselineInput = z.infer<typeof importBaselineSchema>;
 export type EngineRequest =
   | { action: "deploy-suite"; payload: DeploySuiteInput }
-  | { action: "upgrade-batch"; payload: UpgradeBatchInput }
-  | { action: "import-baseline"; payload: ImportBaselineInput };
+  | { action: "upgrade-batch"; payload: UpgradeBatchInput };
 
 export interface TransactionRecord {
   label: string;
@@ -85,12 +75,6 @@ export interface EngineResult {
     transactionHash: string;
     blockNumber: number;
   }>;
-  importedBaseline?: {
-    contractName: string;
-    proxyAddress: string;
-    implementationAddress: string;
-    bytecodeVerified: true;
-  };
   transactions: TransactionRecord[];
 }
 
@@ -113,7 +97,6 @@ export interface JobJournal {
     implementationAddress: string;
     relation: "current" | "new";
   }>;
-  importedBaseline?: EngineResult["importedBaseline"];
   error?: { message: string };
   stage: string;
   progress: number;

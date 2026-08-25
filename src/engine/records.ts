@@ -16,8 +16,9 @@ export async function persistEngineRecord(jobId: string, result: PersistedJobRec
 
 export async function listEngineRecords(): Promise<PersistedJobRecord[]> {
   try {
-    const files = (await readdir(recordsDirectory)).filter((file) => file.endsWith(".json")).sort().reverse();
-    return await Promise.all(files.map(async (file) => JSON.parse(await readFile(path.join(recordsDirectory, file), "utf8")) as PersistedJobRecord));
+    const files = (await readdir(recordsDirectory)).filter((file) => file.endsWith(".json"));
+    const records = await Promise.all(files.map(async (file) => JSON.parse(await readFile(path.join(recordsDirectory, file), "utf8")) as PersistedJobRecord));
+    return records.sort((left, right) => Date.parse(right.startedAt) - Date.parse(left.startedAt));
   } catch {
     return [];
   }

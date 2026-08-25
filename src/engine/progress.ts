@@ -17,13 +17,7 @@ export function buildJobNodes(request: EngineRequest): JobNode[] {
         { id: "grant_role", label: "授权 Lifecycle 调用 Payment" },
         { id: "verify", label: "复核代理、实现与角色" },
       ]
-    : request.action === "import-baseline"
-      ? [
-          { id: "validate_baseline", label: `核验 ${request.payload.contractName} 线上字节码` },
-          { id: "import_baseline", label: `导入 ${request.payload.contractName} 存储布局基线` },
-          { id: "verify", label: "复核代理实现地址" },
-        ]
-      : request.payload.items.flatMap((item, index) => [
+    : request.payload.items.flatMap((item, index) => [
           { id: `upgrade_${index}_validate`, label: `校验 ${item.contractName} 存储布局与权限` },
           { id: `upgrade_${index}_upgrade`, label: `升级 ${item.contractName}` },
           { id: `upgrade_${index}_verify`, label: `复核 ${item.contractName} 新实现` },

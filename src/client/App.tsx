@@ -6,6 +6,39 @@ import type { EngineRecord, Job, Mode, NetworkCheck, NetworkForm, SourceFile, Up
 const ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 const POLL_INTERVAL = 900;
 
+type RpcParts = { protocol: "http" | "https"; host: string; port: string };
+
+function splitRpcUrl(rpcUrl: string): RpcParts {
+  if (!rpcUrl) return { protocol: "http", host: "", port: "" };
+  try {
+    const url = new URL(rpcUrl);
+    return {
+      protocol: url.protocol === "https:" ? "https" : "http",
+      host: url.hostname.replace(/^\[|\]$/g, ""),
+      port: url.port,
+    };
+  } catch {
+    return { protocol: "http", host: "", port: "" };
+  }
+}
+
+function buildRpcUrl({ protocol, host, port }: RpcParts) {
+  const cleanHost = host.trim().replace(/^\[|\]$/g, "");
+  if (!cleanHost) return "";
+  const hostname = cleanHost.includes(":") ? `[${cleanHost}]` : cleanHost;
+  try {
+    const url = new URL(`${protocol}://${hostname}`);
+    if (port) url.port = port;
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return "";
+  }
+}
+
+function networkFingerprint(network: NetworkForm) {
+  return `${network.rpcUrl}|${network.chainId}|${network.adminAddress.toLowerCase()}`;
+}
+
 const DEFAULT_NETWORK: NetworkForm = {
   rpcUrl: "",
   chainId: "",
@@ -184,6 +217,9 @@ function NetworkPanel({ network, setNetwork, state, onCheck }: {
   onCheck: () => void;
 }) {
   const set = (key: keyof NetworkForm, value: string) => setNetwork({ ...network, [key]: value });
+  const rpc = splitRpcUrl(network.rpcUrl);
+  const setRpc = (key: keyof RpcParts, value: string) => set("rpcUrl", buildRpcUrl({ ...rpc, [key]: value }));
+  const portValid = /^\d+$/.test(rpc.port) && Number(rpc.port) >= 1 && Number(rpc.port) <= 65535;
   const checkPassed = state.result?.ok === true && state.result.signer?.matchesAdmin === true;
   const checkMessage = state.result
     ? !state.result.ok
@@ -205,8 +241,12 @@ function NetworkPanel({ network, setNetwork, state, onCheck }: {
         }
       />
       <div className="panel-body network-grid">
-        <Field label="RPC URL" error={!/^https?:\/\//.test(network.rpcUrl) ? "请输入 http:// 或 https:// 地址" : undefined}>
-          <div className="input-with-icon"><Icon name="network" size={18} /><input value={network.rpcUrl} onChange={(event) => set("rpcUrl", event.target.value.trim())} spellCheck={false} /></div>
+        <Field label="RPC 连接" error={!rpc.host ? "请填写节点地址" : !portValid ? "端口范围为 1–65535" : undefined}>
+          <div className="rpc-segments">
+            <label><span>协议</span><select value={rpc.protocol} onChange={(event) => setRpc("protocol", event.target.value as RpcParts["protocol"])}><option value="http">HTTP</option><option value="https">HTTPS</option></select></label>
+            <label className="rpc-address"><span>地址</span><div className="input-with-icon"><Icon name="network" size={18} /><input value={rpc.host} placeholder="127.0.0.1" onChange={(event) => setRpc("host", event.target.value)} spellCheck={false} /></div></label>
+            <label><span>端口</span><input value={rpc.port} placeholder="8545" inputMode="numeric" onChange={(event) => setRpc("port", event.target.value.replace(/\D/g, ""))} /></label>
+          </div>
         </Field>
         <Field label="Chain ID" error={!/^\d+$/.test(network.chainId) ? "必须是数字" : undefined}>
           <input value={network.chainId} inputMode="numeric" onChange={(event) => set("chainId", event.target.value.trim())} />
@@ -214,8 +254,8 @@ function NetworkPanel({ network, setNetwork, state, onCheck }: {
         <Field className="full-field" label="签名 / Admin 钱包" hint="必须是节点已解锁账户，或由本地服务配置对应私钥。">
           <div className="input-with-icon"><Icon name="wallet" size={18} /><input value={network.adminAddress} onChange={(event) => set("adminAddress", event.target.value.trim())} spellCheck={false} /></div>
         </Field>
-        <Field className="full-field" label="上传源码存储目录（可选）" hint="留空则保存在工具目录；可填写 Windows 绝对路径，例如 D:\\TopazSources。">
-          <div className="input-with-icon"><Icon name="database" size={18} /><input value={network.storageDirectory} placeholder="D:\\TopazSources" onChange={(event) => set("storageDirectory", event.target.value.trim())} spellCheck={false} /></div>
+        <Field className="full-field" label="上传源码存储目录（可选）" hint="留空则保存在工具目录；可填写 Windows 绝对路径，例如 D:\\ContractSources。">
+          <div className="input-with-icon"><Icon name="database" size={18} /><input value={network.storageDirectory} placeholder="D:\\ContractSources" onChange={(event) => set("storageDirectory", event.target.value.trim())} spellCheck={false} /></div>
         </Field>
         {(state.result || state.error) && (
           <div className={`connection-result full-field ${checkPassed ? "is-success" : "is-error"}`} role="status">
@@ -234,7 +274,21 @@ function UpgradePanel({ items, setItems }: { items: UpgradeItem[]; setItems: (it
   const addFiles = async (event: ChangeEvent<HTMLInputElement>) => {
     const sources = await readSources(event.target.files);
     const additions = sources.map((source) => ({ ...source, contractName: contractNameFromFile(source.name), proxyAddress: "" }));
-    setItems([...items, ...additions]);
+    const next = [...items];
+    additions.forEach((addition) => {
+      const normalizedPath = addition.path.replace(/\\/g, "/").toLowerCase();
+      const existingIndex = next.findIndex((item) =>
+        item.path.replace(/\\/g, "/").toLowerCase() === normalizedPath
+        || Boolean(addition.contractName && item.contractName === addition.contractName),
+      );
+      if (existingIndex >= 0) next[existingIndex] = {
+        ...addition,
+        path: next[existingIndex].path,
+        proxyAddress: next[existingIndex].proxyAddress,
+      };
+      else next.push(addition);
+    });
+    setItems(next);
     event.target.value = "";
   };
   const update = (id: string, patch: Partial<UpgradeItem>) => setItems(items.map((item) => item.id === id ? { ...item, ...patch } : item));
@@ -242,49 +296,34 @@ function UpgradePanel({ items, setItems }: { items: UpgradeItem[]; setItems: (it
     <section className="panel upgrade-panel">
       <SectionTitle
         step="2"
-        icon="refresh"
-        title="上传本次完整源码集"
-        aside={<span className="quiet-label">目标逐个升级 · 依赖只参与编译</span>}
+        icon="upload"
+        title="上传合约"
+        aside={
+          <div className="upgrade-heading-actions">
+            <button type="button" onClick={() => fileRef.current?.click()}><Icon name="file" size={15} />选择文件</button>
+            <button type="button" onClick={() => directoryRef.current?.click()}><Icon name="database" size={15} />选择目录</button>
+          </div>
+        }
       />
       <div className="panel-body">
         <input ref={fileRef} className="visually-hidden" type="file" multiple accept=".sol" onChange={addFiles} />
         <input ref={directoryRef} className="visually-hidden" type="file" multiple accept=".sol" onChange={addFiles} {...({ webkitdirectory: "", directory: "" } as InputHTMLAttributes<HTMLInputElement>)} />
-        <button className="upload-area" type="button" onClick={() => fileRef.current?.click()}>
-          <span className="upload-icon"><Icon name="upload" size={22} /></span>
-          <span><strong>上传目标合约和全部本地依赖</strong><small>主合约设置代理地址；Types、接口等依赖文件无需代理地址</small></span>
-          <span className="upload-button"><Icon name="plus" size={16} /> 选择文件</span>
-        </button>
-        <button className="upgrade-directory-button" type="button" onClick={() => directoryRef.current?.click()}><Icon name="database" size={16} />选择完整源码目录</button>
-
-        {items.length === 0 ? (
-          <div className="empty-list">
-            <Icon name="file" size={22} />
-            <span>还没有要升级的合约</span>
-          </div>
+        {!items.some((item) => item.contractName) ? (
+          <button className="upgrade-empty" type="button" onClick={() => fileRef.current?.click()}><Icon name="plus" size={17} />选择要升级的合约</button>
         ) : (
           <div className="upgrade-list">
-            <div className="list-caption"><span>源码清单</span><span>{items.length} 个文件 · {items.filter((item) => item.contractName).length} 个升级目标</span></div>
-            {items.map((item, index) => (
+            {items.filter((item) => item.contractName).map((item) => (
               <article className="upgrade-item" key={item.id}>
                 <div className="contract-identity">
-                  <span className="contract-order">{String(index + 1).padStart(2, "0")}</span>
                   <span className="file-badge"><Icon name="file" size={18} /></span>
-                  <span className="contract-file"><strong>{item.contractName || item.name}</strong><small>{item.path} · {(item.size / 1024).toFixed(1)} KB</small></span>
+                  <span className="contract-file"><strong>{CONTRACT_LABELS[item.contractName] || fileBaseName(item.path).replace(/^Topaz/i, "")}</strong><small>{(item.size / 1024).toFixed(1)} KB</small></span>
                 </div>
-                <div className="item-fields">
-                  <Field label="合约名称">
-                    <select value={item.contractName} onChange={(event) => update(item.id, { contractName: event.target.value })}>
-                      <option value="">编译依赖（不升级）</option>
-                      <option value="TopazLifecycle">TopazLifecycle</option>
-                      <option value="TopazPayment">TopazPayment</option>
-                      <option value="TopazContacts">TopazContacts</option>
-                    </select>
-                  </Field>
-                  {item.contractName ? <Field label="当前代理地址" error={item.proxyAddress && !ADDRESS_RE.test(item.proxyAddress) ? "地址格式不正确" : undefined}>
+                {item.contractName && (
+                  <Field className="upgrade-proxy-field" label="当前代理地址" error={item.proxyAddress && !ADDRESS_RE.test(item.proxyAddress) ? "地址格式不正确" : undefined}>
                     <input placeholder="0x…" value={item.proxyAddress} onChange={(event) => update(item.id, { proxyAddress: event.target.value.trim() })} spellCheck={false} />
-                  </Field> : <div className="dependency-note"><Icon name="check" size={16} /><span>作为编译依赖上传，不发送升级交易</span></div>}
-                </div>
-                <button className="remove-button" type="button" onClick={() => setItems(items.filter((candidate) => candidate.id !== item.id))} aria-label={`移除 ${item.name}`} title="移除">
+                  </Field>
+                )}
+                <button className="remove-button" type="button" onClick={() => setItems(items.filter((candidate) => candidate.id !== item.id))} aria-label={`移除 ${CONTRACT_LABELS[item.contractName] || "合约"}`} title="移除">
                   <Icon name="remove" size={18} />
                 </button>
               </article>
@@ -293,50 +332,6 @@ function UpgradePanel({ items, setItems }: { items: UpgradeItem[]; setItems: (it
         )}
       </div>
     </section>
-  );
-}
-
-function BaselineImport({
-  sources,
-  contractName,
-  proxyAddress,
-  busy,
-  onSources,
-  onContractName,
-  onProxyAddress,
-  onImport,
-}: {
-  sources: SourceFile[];
-  contractName: string;
-  proxyAddress: string;
-  busy: boolean;
-  onSources: (sources: SourceFile[]) => void;
-  onContractName: (name: string) => void;
-  onProxyAddress: (address: string) => void;
-  onImport: () => void;
-}) {
-  const valid = sources.length > 0 && ADDRESS_RE.test(proxyAddress);
-  return (
-    <details className="baseline-box">
-      <summary><span><Icon name="database" size={17} /><strong>首次接管已有代理</strong></span><small>只需做一次</small></summary>
-      <div className="baseline-body">
-        <p>上传当前线上版本的完整源码集（目标合约及本地依赖）。系统核对链上字节码，完全匹配后才保存升级基线。</p>
-        <div className="baseline-grid">
-          <SourceSetPicker label="上传当前版本完整源码集" sources={sources} onSelect={onSources} />
-          <Field label="合约名称">
-            <select value={contractName} onChange={(event) => onContractName(event.target.value)}>
-              <option value="TopazLifecycle">TopazLifecycle</option>
-              <option value="TopazPayment">TopazPayment</option>
-              <option value="TopazContacts">TopazContacts</option>
-            </select>
-          </Field>
-          <Field className="baseline-address" label="当前代理地址" error={proxyAddress && !ADDRESS_RE.test(proxyAddress) ? "地址格式不正确" : undefined}>
-            <input value={proxyAddress} placeholder="0x…" onChange={(event) => onProxyAddress(event.target.value.trim())} spellCheck={false} />
-          </Field>
-        </div>
-        <div className="baseline-footer"><span><Icon name="shield" size={16} />只导入基线，不升级、不改变链上状态</span><button type="button" disabled={!valid || busy} onClick={onImport}>{busy ? "正在核对…" : "核对并导入基线"}</button></div>
-      </div>
-    </details>
   );
 }
 
@@ -350,19 +345,59 @@ const DEPLOY_STEPS = [
 function DeployPanel({ sources, setSources }: { sources: SourceFile[]; setSources: (sources: SourceFile[]) => void }) {
   const filesRef = useRef<HTMLInputElement>(null);
   const directoryRef = useRef<HTMLInputElement>(null);
+  const stepFilesRef = useRef<Record<string, HTMLInputElement | null>>({});
+  const [stepUploadErrors, setStepUploadErrors] = useState<Record<string, string>>({});
   const matches = deploymentSourceMatches(sources);
 
   const replaceSources = async (event: ChangeEvent<HTMLInputElement>) => {
     const selected = await readSources(event.target.files);
-    if (selected.length > 0) setSources(selected.sort((left, right) => left.path.localeCompare(right.path)));
+    if (selected.length > 0) {
+      setSources(selected.sort((left, right) => left.path.localeCompare(right.path)));
+      setStepUploadErrors({});
+    }
     event.target.value = "";
   };
 
   const removeSource = (id: string) => setSources(sources.filter((source) => source.id !== id));
 
+  const replaceMainSource = async (
+    event: ChangeEvent<HTMLInputElement>,
+    contract: (typeof DEPLOY_CONTRACTS)[number],
+  ) => {
+    const selected = await readSources(event.target.files);
+    event.target.value = "";
+    if (selected.length === 0) return;
+    const source = selected[0];
+    if (fileBaseName(source.path).toLowerCase() !== contract.fileName.toLowerCase()) {
+      setStepUploadErrors((current) => ({ ...current, [contract.key]: `请选择 ${contract.fileName}` }));
+      return;
+    }
+    setStepUploadErrors((current) => ({ ...current, [contract.key]: "" }));
+    const existingPath = matches[contract.key][0]?.path;
+    const replacement = existingPath ? { ...source, path: existingPath } : source;
+    setSources([
+      ...sources.filter((candidate) => fileBaseName(candidate.path).toLowerCase() !== contract.fileName.toLowerCase()),
+      replacement,
+    ].sort((left, right) => left.path.localeCompare(right.path)));
+  };
+
   return (
     <section className="panel deploy-panel">
-      <SectionTitle step="2" icon="deploy" title="部署整套合约" aside={<span className="quiet-label">顺序已锁定，不可跳步</span>} />
+      <SectionTitle
+        step="2"
+        icon="deploy"
+        title="部署整套合约"
+        aside={<div className="deploy-heading-actions">
+          <span
+            className="info-tooltip"
+            tabIndex={0}
+            aria-label="部署依赖说明"
+            data-tooltip="后一步使用前一步生成的代理地址；任一步失败即停止，不再发送后续交易。"
+          ><Icon name="shield" size={17} /></span>
+          <button type="button" className="suite-primary-upload" onClick={() => filesRef.current?.click()}><Icon name="file" size={15} />{sources.length ? "重新选文件" : "选择 .sol"}</button>
+          <button type="button" className="suite-directory-upload" onClick={() => directoryRef.current?.click()}><Icon name="database" size={15} />选择目录</button>
+        </div>}
+      />
       <div className="panel-body">
         <input ref={filesRef} className="visually-hidden" type="file" multiple accept=".sol" onChange={replaceSources} />
         <input
@@ -374,31 +409,6 @@ function DeployPanel({ sources, setSources }: { sources: SourceFile[]; setSource
           onChange={replaceSources}
           {...({ webkitdirectory: "", directory: "" } as InputHTMLAttributes<HTMLInputElement>)}
         />
-        <div className={`suite-upload ${sources.length ? "has-files" : ""}`}>
-          <div className="suite-upload-copy">
-            <span className="upload-icon"><Icon name="upload" size={23} /></span>
-            <span><strong>上传整套合约源码</strong><small>请把三个主合约及其本地依赖一次上传；执行时会提交下面的完整清单。</small></span>
-          </div>
-          <div className="suite-upload-actions">
-            <button type="button" className="suite-primary-upload" onClick={() => filesRef.current?.click()}><Icon name="file" size={16} />{sources.length ? "重新选择文件" : "选择多个 .sol"}</button>
-            <button type="button" className="suite-directory-upload" onClick={() => directoryRef.current?.click()}><Icon name="database" size={16} />选择源码目录</button>
-          </div>
-        </div>
-
-        <div className="suite-detection" aria-label="主合约识别状态">
-          {DEPLOY_CONTRACTS.map((contract) => {
-            const found = matches[contract.key];
-            const ready = found.length === 1;
-            return (
-              <div className={ready ? "is-ready" : "is-missing"} key={contract.key}>
-                <span><Icon name={ready ? "check" : "remove"} size={14} /></span>
-                <strong>{contract.contractName}</strong>
-                <small>{ready ? "已识别" : found.length > 1 ? `发现 ${found.length} 份，请只保留一份` : "缺少源码"}</small>
-              </div>
-            );
-          })}
-        </div>
-
         {sources.length > 0 && (
           <div className="suite-file-list">
             <div className="list-caption"><span>完整上传清单</span><span>{sources.length} 个 Solidity 文件</span></div>
@@ -415,22 +425,40 @@ function DeployPanel({ sources, setSources }: { sources: SourceFile[]; setSource
           </div>
         )}
 
-        <div className="flow-notice"><Icon name="shield" size={18} /><span>后一步会使用前一步生成的代理地址；任一步失败都会停止，不继续发送交易。</span></div>
         <div className="deploy-flow">
           {DEPLOY_STEPS.map((step, index) => (
             <div className={`deploy-step ${step.key === "authorize" ? "relationship-step" : ""}`} key={step.key}>
               <div className="flow-rail"><span>{step.no}</span>{index < DEPLOY_STEPS.length - 1 && <i />}</div>
               <div className="flow-card">
                 <div className="flow-copy"><strong>{step.title}</strong><p>{step.detail}</p><small>{step.result}</small></div>
-                {step.key !== "authorize" ? (
-                  <div className={`flow-source-status ${matches[step.key].length === 1 ? "is-ready" : "is-missing"}`}>
+                {step.key !== "authorize" ? (() => {
+                  const contract = DEPLOY_CONTRACTS.find((candidate) => candidate.key === step.key)!;
+                  const found = matches[step.key];
+                  const ready = found.length === 1;
+                  const error = stepUploadErrors[step.key];
+                  return <>
+                    <input
+                      ref={(element) => { stepFilesRef.current[step.key] = element; }}
+                      className="visually-hidden"
+                      type="file"
+                      accept=".sol"
+                      onChange={(event) => void replaceMainSource(event, contract)}
+                    />
+                    <button
+                      type="button"
+                      className={`flow-source-status ${ready ? "is-ready" : "is-missing"} ${error ? "has-error" : ""}`}
+                      onClick={() => stepFilesRef.current[step.key]?.click()}
+                      aria-label={`${ready ? "替换" : "上传"} ${contract.fileName}`}
+                    >
                     <span><Icon name={matches[step.key].length === 1 ? "check" : "remove"} size={16} /></span>
-                    <span>
-                      <strong>{matches[step.key].length === 1 ? matches[step.key][0].name : `缺少 Topaz${step.name}.sol`}</strong>
-                      <small>{matches[step.key].length === 1 ? matches[step.key][0].path : matches[step.key].length > 1 ? "检测到重复主合约，请从清单移除多余文件" : "请先在上方上传完整源码"}</small>
+                    <span className="flow-source-copy">
+                      <strong>{ready ? found[0].name : `上传 ${step.name} 主合约源码`}</strong>
+                      <small>{error || (ready ? `${found[0].path} · 点击替换` : `点击选择 ${contract.fileName}`)}</small>
                     </span>
-                  </div>
-                ) : (
+                    <span className="flow-upload-action"><Icon name="upload" size={15} />{ready ? "替换" : "上传"}</span>
+                    </button>
+                  </>;
+                })() : (
                   <div className="relation-equation"><span>Payment</span><Icon name="chevron" size={16} /><code>LIFECYCLE_ROLE</code><Icon name="chevron" size={16} /><span>Lifecycle Proxy</span></div>
                 )}
               </div>
@@ -507,7 +535,7 @@ function Summary({ mode, network, upgradeItems, deploySources, job, onSubmit }: 
   job?: Job;
   onSubmit: (dryRun: boolean) => void;
 }) {
-  const upgradeTargets = upgradeItems.filter((item) => item.contractName);
+  const upgradeTargets = upgradeItems.filter((item) => item.contractName && item.proxyAddress.trim());
   const upgradeValid = upgradeItems.length > 0 && upgradeTargets.length > 0 && upgradeTargets.every((item) => ADDRESS_RE.test(item.proxyAddress));
   const deployMatches = deploymentSourceMatches(deploySources);
   const invalidDeployContracts = DEPLOY_CONTRACTS.filter((contract) => deployMatches[contract.key].length !== 1);
@@ -517,17 +545,11 @@ function Summary({ mode, network, upgradeItems, deploySources, job, onSubmit }: 
   const busy = job && !["succeeded", "failed"].includes(job.status);
   return (
     <aside className="summary-card">
-      <div className="summary-head">
-        <span className="summary-eyebrow">本次操作</span>
-        <span className={`summary-chip ${mode}`}><Icon name={mode === "upgrade" ? "refresh" : "deploy"} size={15} />{mode === "upgrade" ? "升级" : "部署"}</span>
-        <h2>{mode === "upgrade" ? `升级 ${upgradeTargets.length || 0} 个合约` : "部署 Topaz 整套合约"}</h2>
-        <p>{mode === "upgrade" ? "先逐个完成兼容性检查，再按清单顺序升级。" : "严格按依赖顺序执行，自动关联代理地址和角色。"}</p>
-      </div>
       <dl className="summary-list">
         <div><dt>网络</dt><dd>Chain ID {network.chainId || "—"}</dd></div>
         <div><dt>RPC</dt><dd>{network.rpcUrl.replace(/^https?:\/\//, "") || "—"}</dd></div>
         <div><dt>Admin</dt><dd title={network.adminAddress}>{compactAddress(network.adminAddress)}</dd></div>
-        <div><dt>{mode === "upgrade" ? "升级清单" : "交易顺序"}</dt><dd>{mode === "upgrade" ? `${upgradeTargets.length} 个目标 · ${upgradeItems.length} 个源码` : "7 笔交易"}</dd></div>
+        <div><dt>{mode === "upgrade" ? "升级清单" : "交易顺序"}</dt><dd>{mode === "upgrade" ? `${upgradeTargets.length} 个合约` : "7 笔交易"}</dd></div>
       </dl>
       {mode === "upgrade" ? (
         <div className="summary-contracts">
@@ -565,7 +587,6 @@ function Summary({ mode, network, upgradeItems, deploySources, job, onSubmit }: 
 const ACTION_NAMES: Record<EngineRecord["action"], string> = {
   "deploy-suite": "部署整套合约",
   "upgrade-batch": "升级现有合约",
-  "import-baseline": "导入升级基线",
 };
 
 function formatRecordTime(value?: string) {
@@ -590,7 +611,7 @@ function HistoryDrawer({ open, onClose }: { open: boolean; onClose: () => void }
     setState("loading");
     setError("");
     try {
-      setRecords(await listEngineRecords());
+      setRecords((await listEngineRecords()).filter((record) => record.action === "deploy-suite" || record.action === "upgrade-batch"));
       setState("ready");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "读取部署记录失败");
@@ -625,7 +646,6 @@ function HistoryDrawer({ open, onClose }: { open: boolean; onClose: () => void }
             const assets: Array<{ name: string; proxy: string; implementation: string; previous?: string; tx?: string }> = [
               ...(record.deployments ?? []).map((item) => ({ name: item.contractName, proxy: item.proxyAddress, implementation: item.implementationAddress, tx: item.proxyTransactionHash || item.implementationTransactionHash })),
               ...(record.upgrades ?? []).map((item) => ({ name: item.contractName, proxy: item.proxyAddress, implementation: item.implementationAddress, previous: item.previousImplementation, tx: item.transactionHash })),
-              ...(record.importedBaseline ? [{ name: record.importedBaseline.contractName, proxy: record.importedBaseline.proxyAddress, implementation: record.importedBaseline.implementationAddress }] : []),
             ];
             return (
               <details className={`record-card ${status}`} key={`${record.startedAt}-${index}`} open={index === 0}>
@@ -654,18 +674,15 @@ function HistoryDrawer({ open, onClose }: { open: boolean; onClose: () => void }
 export default function App() {
   const [mode, setMode] = useState<Mode>("upgrade");
   const [network, setNetwork] = useState<NetworkForm>(() => {
-    try { return { ...DEFAULT_NETWORK, ...JSON.parse(localStorage.getItem("topaz.network") || "{}") }; } catch { return DEFAULT_NETWORK; }
+    try { return { ...DEFAULT_NETWORK, ...JSON.parse(localStorage.getItem("contract-console.network") || "{}") }; } catch { return DEFAULT_NETWORK; }
   });
-  const [networkState, setNetworkState] = useState<{ checking: boolean; result?: NetworkCheck; error?: string }>({ checking: false });
+  const [networkState, setNetworkState] = useState<{ checking: boolean; result?: NetworkCheck; error?: string; checkedNetwork?: string }>({ checking: false });
   const [upgradeItems, setUpgradeItems] = useState<UpgradeItem[]>([]);
   const [deploySources, setDeploySources] = useState<SourceFile[]>([]);
-  const [baselineSources, setBaselineSources] = useState<SourceFile[]>([]);
-  const [baselineContract, setBaselineContract] = useState("TopazLifecycle");
-  const [baselineProxy, setBaselineProxy] = useState("");
   const [job, setJob] = useState<Job>();
   const [recordsOpen, setRecordsOpen] = useState(false);
 
-  useEffect(() => { localStorage.setItem("topaz.network", JSON.stringify(network)); }, [network]);
+  useEffect(() => { localStorage.setItem("contract-console.network", JSON.stringify(network)); }, [network]);
 
   useEffect(() => {
     if (!job || ["succeeded", "failed"].includes(job.status)) return;
@@ -676,13 +693,13 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [job]);
 
-  const connected = useMemo(() => networkState.result?.ok === true && networkState.result.signer?.matchesAdmin === true && Number(network.chainId) === networkState.result.actualChainId, [network.chainId, networkState.result]);
+  const connected = useMemo(() => networkState.result?.ok === true && networkState.result.signer?.matchesAdmin === true && Number(network.chainId) === networkState.result.actualChainId && networkState.checkedNetwork === networkFingerprint(network), [network, networkState]);
 
   async function handleNetworkCheck() {
     setNetworkState({ checking: true });
     try {
       const result = await checkNetwork(network);
-      setNetworkState({ checking: false, result });
+      setNetworkState({ checking: false, result, checkedNetwork: networkFingerprint(network) });
     } catch (error) {
       setNetworkState({ checking: false, error: error instanceof Error ? error.message : "连接失败" });
     }
@@ -697,7 +714,7 @@ export default function App() {
       const { sourceSetId } = await uploadSources(sources, network.storageDirectory);
       const engineNetwork = { rpcUrl: network.rpcUrl, chainId: Number(network.chainId), admin: network.adminAddress };
       const payload = mode === "upgrade"
-        ? { network: engineNetwork, sourceSetId, dryRun, items: upgradeItems.filter(({ contractName }) => contractName).map(({ contractName, proxyAddress }) => ({ contractName, proxyAddress })) }
+        ? { network: engineNetwork, sourceSetId, dryRun, items: upgradeItems.filter(({ contractName, proxyAddress }) => contractName && proxyAddress.trim()).map(({ contractName, proxyAddress }) => ({ contractName, proxyAddress })) }
         : { network: engineNetwork, sourceSetId, dryRun };
       setJob(await createJob(mode === "upgrade" ? "upgrade-batch" : "deploy-suite", payload));
     } catch (error) {
@@ -705,26 +722,14 @@ export default function App() {
     }
   }
 
-  async function handleBaselineImport() {
-    if (!baselineSources.length) return;
-    try {
-      setJob({ id: "pending", action: "import-baseline", status: "queued", message: "正在上传当前版本源码", progress: 2 });
-      const { sourceSetId } = await uploadSources(baselineSources, network.storageDirectory);
-      setJob(await createJob("import-baseline", {
-        network: { rpcUrl: network.rpcUrl, chainId: Number(network.chainId), admin: network.adminAddress },
-        sourceSetId,
-        contractName: baselineContract,
-        proxyAddress: baselineProxy,
-      }));
-    } catch (error) {
-      setJob({ id: "failed", action: "import-baseline", status: "failed", error: error instanceof Error ? error.message : "基线导入失败" });
-    }
-  }
-
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div className="brand"><span className="brand-mark"><Icon name="shield" size={25} /></span><span><strong>Topaz 合约控制台</strong><small>外部网络部署与升级</small></span></div>
+        <div className="brand"><span className="brand-mark"><Icon name="shield" size={25} /></span><span><strong>合约部署控制台</strong><small>外部网络部署与升级</small></span></div>
+        <div className="mode-switch topbar-mode" role="tablist" aria-label="操作类型">
+          <button className={mode === "upgrade" ? "active" : ""} type="button" role="tab" aria-selected={mode === "upgrade"} onClick={() => { setMode("upgrade"); setJob(undefined); }}><Icon name="refresh" size={16} /><strong>升级现有合约</strong></button>
+          <button className={mode === "deploy" ? "active" : ""} type="button" role="tab" aria-selected={mode === "deploy"} onClick={() => { setMode("deploy"); setJob(undefined); }}><Icon name="deploy" size={16} /><strong>部署整套合约</strong></button>
+        </div>
         <div className="topbar-right">
           <button className="history-link" type="button" onClick={() => setRecordsOpen(true)}><Icon name="history" size={17} />部署记录</button>
           <span className={`network-badge ${connected ? "connected" : ""}`}><i />{connected ? `已连接 · Chain ID ${network.chainId}` : "尚未验证网络"}</span>
@@ -732,25 +737,19 @@ export default function App() {
       </header>
 
       <main className="page">
-        <section className="workspace-head">
-          <div><span className="eyebrow">LOCAL CONTRACT PUBLISHER</span><h1>合约部署与升级</h1><p>上传源码，完成检查，然后执行。每一步都会留下可核对的本地记录。</p></div>
-          <div className="mode-switch" role="tablist" aria-label="操作类型">
-            <button className={mode === "upgrade" ? "active" : ""} type="button" role="tab" aria-selected={mode === "upgrade"} onClick={() => { setMode("upgrade"); setJob(undefined); }}><Icon name="refresh" size={18} /><span><strong>升级现有合约</strong><small>默认 · 可批量</small></span></button>
-            <button className={mode === "deploy" ? "active" : ""} type="button" role="tab" aria-selected={mode === "deploy"} onClick={() => { setMode("deploy"); setJob(undefined); }}><Icon name="deploy" size={18} /><span><strong>部署整套合约</strong><small>按依赖顺序</small></span></button>
-          </div>
-        </section>
-
         <div className="workspace-grid">
           <div className="form-column">
             <NetworkPanel network={network} setNetwork={setNetwork} state={networkState} onCheck={handleNetworkCheck} />
             {mode === "upgrade"
-              ? <><UpgradePanel items={upgradeItems} setItems={setUpgradeItems} /><BaselineImport sources={baselineSources} contractName={baselineContract} proxyAddress={baselineProxy} busy={Boolean(job && !["succeeded", "failed"].includes(job.status))} onSources={setBaselineSources} onContractName={setBaselineContract} onProxyAddress={setBaselineProxy} onImport={handleBaselineImport} /></>
+              ? <UpgradePanel items={upgradeItems} setItems={setUpgradeItems} />
               : <DeployPanel sources={deploySources} setSources={setDeploySources} />}
           </div>
-          <Summary mode={mode} network={network} upgradeItems={upgradeItems} deploySources={deploySources} job={job} onSubmit={handleSubmit} />
+          <div className="side-column">
+            <Summary mode={mode} network={network} upgradeItems={upgradeItems} deploySources={deploySources} job={job} onSubmit={handleSubmit} />
+          </div>
         </div>
       </main>
-      <footer className="footer"><span>Topaz Contract Console</span><span>仅在本机运行 · 不向外部服务上传源码或配置</span></footer>
+      <footer className="footer"><span>Contract Console</span><span>仅在本机运行 · 不向外部服务上传源码或配置</span></footer>
       <HistoryDrawer open={recordsOpen} onClose={() => setRecordsOpen(false)} />
     </div>
   );

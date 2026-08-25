@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.importBaselineSchema = exports.upgradeBatchSchema = exports.upgradeItemSchema = exports.deploySuiteSchema = exports.networkSchema = void 0;
+exports.upgradeBatchSchema = exports.upgradeItemSchema = exports.deploySuiteSchema = exports.networkSchema = void 0;
 const zod_1 = require("zod");
 const address = zod_1.z.string().regex(/^0x[0-9a-fA-F]{40}$/, "必须是 20 字节以太坊地址").refine((value) => !/^0x0{40}$/i.test(value), "地址不能为零地址");
 const rpcUrl = zod_1.z.string().url().superRefine((value, context) => {
@@ -30,12 +30,5 @@ exports.upgradeBatchSchema = zod_1.z.object({
     network: exports.networkSchema,
     sourceSetId: zod_1.z.string().uuid(),
     items: zod_1.z.array(exports.upgradeItemSchema).min(1).max(12),
-    dryRun: zod_1.z.boolean().default(false),
-});
-exports.importBaselineSchema = zod_1.z.object({
-    network: exports.networkSchema,
-    sourceSetId: zod_1.z.string().uuid(),
-    contractName: zod_1.z.enum(["TopazPayment", "TopazLifecycle", "TopazContacts"]),
-    proxyAddress: address,
     dryRun: zod_1.z.boolean().default(false),
 });

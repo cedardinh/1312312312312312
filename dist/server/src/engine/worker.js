@@ -10,10 +10,10 @@ const hardhat_1 = __importDefault(require("hardhat"));
 const ethers_1 = require("ethers");
 const validation_1 = require("./validation");
 const progress_1 = require("./progress");
-const requestPath = process.env.TOPAZ_JOB_REQUEST;
-const resultPath = process.env.TOPAZ_JOB_RESULT;
-const journalPath = process.env.TOPAZ_JOB_JOURNAL;
-const expectedAdmin = process.env.TOPAZ_ADMIN;
+const requestPath = process.env.CONTRACT_CONSOLE_JOB_REQUEST;
+const resultPath = process.env.CONTRACT_CONSOLE_JOB_RESULT;
+const journalPath = process.env.CONTRACT_CONSOLE_JOB_JOURNAL;
+const expectedAdmin = process.env.CONTRACT_CONSOLE_ADMIN;
 const projectRoot = node_path_1.default.resolve(process.cwd());
 const contractsRoot = node_path_1.default.join(projectRoot, ".runtime", "contracts");
 const expectedUupsSlot = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc";
@@ -70,17 +70,17 @@ async function recordUpgrade(upgrade) {
     await flushJournal();
 }
 async function signerForAdmin(admin) {
-    const configuredPrivateKey = process.env.TOPAZ_PRIVATE_KEY;
+    const configuredPrivateKey = process.env.CONTRACT_CONSOLE_PRIVATE_KEY;
     if (configuredPrivateKey) {
         const signer = new ethers_1.Wallet(configuredPrivateKey, hardhat_1.default.ethers.provider);
         if ((0, ethers_1.getAddress)(await signer.getAddress()) !== (0, ethers_1.getAddress)(admin)) {
-            throw new Error("TOPAZ_PRIVATE_KEY 对应地址与 Admin 不一致");
+            throw new Error("CONTRACT_CONSOLE_PRIVATE_KEY 对应地址与 Admin 不一致");
         }
         return signer;
     }
     const unlocked = (await hardhat_1.default.ethers.provider.send("eth_accounts", [])).map((value) => value.toLowerCase());
     if (!unlocked.includes(admin.toLowerCase())) {
-        throw new Error("RPC 未解锁 Admin 地址；请在本机环境变量 TOPAZ_PRIVATE_KEY 配置签名私钥，或在 Besu 解锁该账户");
+        throw new Error("RPC 未解锁 Admin 地址；请在本机环境变量 CONTRACT_CONSOLE_PRIVATE_KEY 配置签名私钥，或在 Besu 解锁该账户");
     }
     return hardhat_1.default.ethers.getSigner(admin);
 }
@@ -116,8 +116,8 @@ async function checkedFactory(contractName, signer) {
     const factory = await hardhat_1.default.ethers.getContractFactory(contractName, signer);
     const artifact = await hardhat_1.default.artifacts.readArtifact(contractName);
     const deployedSize = Math.max(0, (artifact.deployedBytecode.length - 2) / 2);
-    if (deployedSize > 24_576 && process.env.TOPAZ_ALLOW_OVERSIZED_CONTRACTS !== "true") {
-        throw new Error(`${contractName} 运行时代码为 ${deployedSize} 字节，超过 EIP-170 上限 24576；只有确认目标 Besu 允许超大合约后，才能设置 TOPAZ_ALLOW_OVERSIZED_CONTRACTS=true`);
+    if (deployedSize > 24_576 && process.env.CONTRACT_CONSOLE_ALLOW_OVERSIZED_CONTRACTS !== "true") {
+        throw new Error(`${contractName} 运行时代码为 ${deployedSize} 字节，超过 EIP-170 上限 24576；只有确认目标 Besu 允许超大合约后，才能设置 CONTRACT_CONSOLE_ALLOW_OVERSIZED_CONTRACTS=true`);
     }
     await hardhat_1.default.upgrades.validateImplementation(factory, { kind: "uups", unsafeAllow: ["constructor"] });
     return factory;
@@ -180,7 +180,7 @@ async function requireProxyInManifest(proxyAddress) {
             // Try the next manifest location.
         }
     }
-    throw new Error(`代理 ${proxyAddress} 尚无可信存储布局基线；请先上传当前线上源码并执行“导入基线”`);
+    throw new Error(`代理 ${proxyAddress} 不在本工具的部署记录中，无法安全校验存储布局`);
 }
 async function deployOne(contractName, initializerArgs, signer, transactions, nodePrefix) {
     await mark(`${nodePrefix}_impl`, "running", `开始部署 ${contractName} 实现与代理`);
@@ -247,36 +247,6 @@ async function deploySuite(request, signer, admin) {
     await mark("verify", "succeeded", "三个代理实现地址及 Lifecycle 角色复核通过");
     return { deployments: [payment.record, lifecycle.record, contacts.record], transactions };
 }
-async function importBaseline(request, signer, admin) {
-    const { contractName, proxyAddress } = request.payload;
-    await mark("validate_baseline", "running", `核验 ${contractName} 当前实现与上传源码`);
-    const currentImplementation = await requireUupsProxy(proxyAddress);
-    await recordKnownContract(contractName, (0, ethers_1.getAddress)(proxyAddress), currentImplementation, "current");
-    await requireAccess(proxyAddress, contractName, admin);
-    const factory = await checkedFactory(contractName, signer);
-    const artifact = await hardhat_1.default.artifacts.readArtifact(contractName);
-    const deployedCode = await hardhat_1.default.ethers.provider.getCode(currentImplementation);
-    if (artifact.deployedBytecode.toLowerCase() !== deployedCode.toLowerCase()) {
-        throw new Error("当前源码编译字节码与链上实现不一致，拒绝导入存储布局基线");
-    }
-    await mark("validate_baseline", "succeeded", `${contractName} 上传源码与链上实现字节码一致`);
-    await mark("import_baseline", "running", `导入 ${contractName} OpenZeppelin 存储布局基线`);
-    await hardhat_1.default.upgrades.forceImport(proxyAddress, factory, { kind: "uups" });
-    await mark("import_baseline", "succeeded", `${contractName} 存储布局基线已导入`);
-    await mark("verify", "running", `复核 ${contractName} 代理实现地址`);
-    const verifiedAgain = await hardhat_1.default.upgrades.erc1967.getImplementationAddress(proxyAddress);
-    if ((0, ethers_1.getAddress)(verifiedAgain) !== (0, ethers_1.getAddress)(currentImplementation))
-        throw new Error("导入基线后代理实现地址复核失败");
-    await mark("verify", "succeeded", `${contractName} 代理实现地址复核通过`);
-    const importedBaseline = { contractName, proxyAddress: (0, ethers_1.getAddress)(proxyAddress), implementationAddress: currentImplementation, bytecodeVerified: true };
-    if (journal)
-        journal.importedBaseline = importedBaseline;
-    await flushJournal();
-    return {
-        importedBaseline,
-        transactions: [],
-    };
-}
 async function upgradeBatch(request, signer, admin) {
     const transactions = [];
     const seen = new Set();
@@ -337,19 +307,6 @@ async function checkOnly(request, signer, admin) {
         checks.push("部署依赖顺序为 Payment → Lifecycle → Contacts → LIFECYCLE_ROLE");
         return checks;
     }
-    if (request.action === "import-baseline") {
-        const { contractName, proxyAddress } = request.payload;
-        const implementation = await requireUupsProxy(proxyAddress);
-        await requireAccess(proxyAddress, contractName, admin);
-        const factory = await checkedFactory(contractName, signer);
-        const artifact = await hardhat_1.default.artifacts.readArtifact(contractName);
-        if (artifact.deployedBytecode.toLowerCase() !== (await hardhat_1.default.ethers.provider.getCode(implementation)).toLowerCase()) {
-            throw new Error("当前源码编译字节码与链上实现不一致，不能导入基线");
-        }
-        void factory;
-        checks.push(`${contractName} 当前源码与链上实现字节码严格一致`);
-        return checks;
-    }
     await (0, validation_1.runSequentialFailFast)(request.payload.items, async (item) => {
         await requireProxyInManifest(item.proxyAddress);
         await requireUupsProxy(item.proxyAddress);
@@ -397,8 +354,6 @@ async function main() {
     let operation;
     if (request.action === "deploy-suite")
         operation = await deploySuite(request, signer, admin);
-    else if (request.action === "import-baseline")
-        operation = await importBaseline(request, signer, admin);
     else
         operation = await upgradeBatch(request, signer, admin);
     const result = {

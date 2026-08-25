@@ -1,4 +1,4 @@
-Topaz 合约控制台（Windows x64 · 纯 Node 离线版）
+合约部署控制台（Windows x64 · 纯 Node 离线版）
 
 启动条件
 1. Windows 已安装 Node.js 20 或 22 x64，并可在命令行执行 node。
@@ -6,17 +6,17 @@ Topaz 合约控制台（Windows x64 · 纯 Node 离线版）
 3. 无需联网下载 npm 包；本目录已包含运行所需依赖。
 
 启动
-双击 start.cmd，浏览器会自动打开 http://127.0.0.1:4174/。
+双击 启动控制台.cmd，浏览器会自动打开 http://127.0.0.1:4174/。
 关闭命令窗口即停止本机页面服务。
 
 使用
 1. 在页面填写 RPC、Chain ID 和 Admin 钱包。
-2. “上传源码存储目录”留空时，源码保存在本目录 .runtime\source-sets；也可填写 D:\TopazSources 这类 Windows 绝对路径。
+2. “上传源码存储目录”留空时，源码保存在本目录 .runtime\source-sets；也可填写 D:\ContractSources 这类 Windows 绝对路径。
 3. 升级时上传目标合约和它引用的全部本地 .sol 依赖。目标合约填写代理地址，Types、接口等依赖标记为“编译依赖”。
-4. 部署整套或导入基线时，同样上传完整源码集，可直接选择源码目录。
+4. 部署整套时，同样上传完整源码集，可直接选择源码目录。
 
 说明
-- 工具内不附带任何 Topaz 或其他业务合约源码。
+- 工具内不附带任何业务合约源码。
 - 工具只连接页面填写的外部 RPC，不启动本地区块链。
 - 包内没有 EXE 文件，不执行 npm install，也不下载 Solidity 编译器。
 - Hardhat 运行所需的 Windows .node 原生模块必须保留。

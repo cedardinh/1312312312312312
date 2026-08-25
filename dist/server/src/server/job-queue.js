@@ -16,7 +16,7 @@ const projectRoot = node_path_1.default.resolve(process.cwd());
 const jobsDirectory = node_path_1.default.join(projectRoot, ".runtime", "jobs");
 const hardhatCli = node_path_1.default.join(projectRoot, "node_modules", "hardhat", "internal", "cli", "cli.js");
 const workerScript = node_path_1.default.join(projectRoot, "dist", "server", "src", "engine", "worker.js");
-const timeoutMs = Number(process.env.TOPAZ_JOB_TIMEOUT_MS ?? "600000");
+const timeoutMs = Number(process.env.CONTRACT_CONSOLE_JOB_TIMEOUT_MS ?? "600000");
 class SerialJobQueue {
     jobs = new Map();
     pending = [];
@@ -157,12 +157,12 @@ class SerialJobQueue {
                 stdio: ["ignore", "pipe", "pipe"],
                 env: {
                     ...process.env,
-                    TOPAZ_RPC_URL: network.rpcUrl,
-                    TOPAZ_CHAIN_ID: String(network.chainId),
-                    TOPAZ_ADMIN: network.admin,
-                    TOPAZ_JOB_REQUEST: requestPath,
-                    TOPAZ_JOB_RESULT: resultPath,
-                    TOPAZ_JOB_JOURNAL: journalPath,
+                    CONTRACT_CONSOLE_RPC_URL: network.rpcUrl,
+                    CONTRACT_CONSOLE_CHAIN_ID: String(network.chainId),
+                    CONTRACT_CONSOLE_ADMIN: network.admin,
+                    CONTRACT_CONSOLE_JOB_REQUEST: requestPath,
+                    CONTRACT_CONSOLE_JOB_RESULT: resultPath,
+                    CONTRACT_CONSOLE_JOB_JOURNAL: journalPath,
                 },
             });
             const timer = setTimeout(() => {

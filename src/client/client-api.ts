@@ -30,7 +30,7 @@ export function uploadSources(sources: SourceFile[], storageDirectory = ""): Pro
   return request<{ sourceSetId: string; files: string[]; storageDirectory: string }>("/api/sources", { method: "POST", body: data });
 }
 
-export function createJob(action: "upgrade-batch" | "deploy-suite" | "import-baseline", payload: unknown): Promise<Job> {
+export function createJob(action: "upgrade-batch" | "deploy-suite", payload: unknown): Promise<Job> {
   return request<Job>("/api/jobs", {
     method: "POST",
     headers: jsonHeaders,

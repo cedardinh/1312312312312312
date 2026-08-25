@@ -15,16 +15,16 @@ subtask(TASK_COMPILE_SOLIDITY_GET_SOLC_BUILD).setAction(async ({ solcVersion }, 
   };
 });
 
-const rpcUrl = process.env.TOPAZ_RPC_URL;
-const rawChainId = process.env.TOPAZ_CHAIN_ID;
+const rpcUrl = process.env.CONTRACT_CONSOLE_RPC_URL;
+const rawChainId = process.env.CONTRACT_CONSOLE_CHAIN_ID;
 const chainId = rawChainId ? Number(rawChainId) : undefined;
-const privateKey = process.env.TOPAZ_PRIVATE_KEY;
+const privateKey = process.env.CONTRACT_CONSOLE_PRIVATE_KEY;
 
 if ((rpcUrl && !rawChainId) || (!rpcUrl && rawChainId)) {
-  throw new Error("TOPAZ_RPC_URL and TOPAZ_CHAIN_ID must be provided together");
+  throw new Error("CONTRACT_CONSOLE_RPC_URL and CONTRACT_CONSOLE_CHAIN_ID must be provided together");
 }
 if (chainId !== undefined && (!Number.isSafeInteger(chainId) || chainId <= 0)) {
-  throw new Error("TOPAZ_CHAIN_ID must be a positive integer");
+  throw new Error("CONTRACT_CONSOLE_CHAIN_ID must be a positive integer");
 }
 
 module.exports = {

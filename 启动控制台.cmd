@@ -23,17 +23,18 @@ if not exist "%CD%\dist\server\src\server\index.js" (
   exit /b 1
 )
 
-set "TOPAZ_CONSOLE_HOST=127.0.0.1"
-set "TOPAZ_CONSOLE_PORT=4174"
-set "TOPAZ_URL=http://127.0.0.1:4174/"
+set "CONTRACT_CONSOLE_HOST=127.0.0.1"
+set "CONTRACT_CONSOLE_PORT=4174"
+set "CONTRACT_CONSOLE_ALLOW_OVERSIZED_CONTRACTS=true"
+set "CONSOLE_URL=http://127.0.0.1:4174/"
 
-start "" /b powershell -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -Command "$u='%TOPAZ_URL%';for($i=0;$i-lt 60;$i++){try{$r=Invoke-RestMethod -Uri ($u+'api/health') -TimeoutSec 1;if($r.ok){Start-Process $u;exit}}catch{};Start-Sleep -Milliseconds 500}"
+start "" /b powershell -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -Command "$u='%CONSOLE_URL%';for($i=0;$i-lt 60;$i++){try{$r=Invoke-RestMethod -Uri ($u+'api/health') -TimeoutSec 1;if($r.ok){Start-Process $u;exit}}catch{};Start-Sleep -Milliseconds 500}"
 
-echo Topaz Contract Console is starting at %TOPAZ_URL%
+echo Contract Console is starting at %CONSOLE_URL%
 echo Keep this window open. Press Ctrl+C to stop the service.
 node "%CD%\dist\server\src\server\index.js"
-set "TOPAZ_EXIT=%ERRORLEVEL%"
+set "CONSOLE_EXIT=%ERRORLEVEL%"
 echo.
-echo Service stopped with exit code %TOPAZ_EXIT%.
+echo Service stopped with exit code %CONSOLE_EXIT%.
 pause
-exit /b %TOPAZ_EXIT%
+exit /b %CONSOLE_EXIT%

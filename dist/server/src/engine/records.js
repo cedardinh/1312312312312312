@@ -19,8 +19,9 @@ async function persistEngineRecord(jobId, result) {
 }
 async function listEngineRecords() {
     try {
-        const files = (await (0, promises_1.readdir)(recordsDirectory)).filter((file) => file.endsWith(".json")).sort().reverse();
-        return await Promise.all(files.map(async (file) => JSON.parse(await (0, promises_1.readFile)(node_path_1.default.join(recordsDirectory, file), "utf8"))));
+        const files = (await (0, promises_1.readdir)(recordsDirectory)).filter((file) => file.endsWith(".json"));
+        const records = await Promise.all(files.map(async (file) => JSON.parse(await (0, promises_1.readFile)(node_path_1.default.join(recordsDirectory, file), "utf8"))));
+        return records.sort((left, right) => Date.parse(right.startedAt) - Date.parse(left.startedAt));
     }
     catch {
         return [];

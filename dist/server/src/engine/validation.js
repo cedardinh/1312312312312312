@@ -32,8 +32,6 @@ function findSolidityContractDeclarations(source, file) {
 function requiredUploadedContracts(request) {
     if (request.action === "deploy-suite")
         return ["TopazPayment", "TopazLifecycle", "TopazContacts"];
-    if (request.action === "import-baseline")
-        return [request.payload.contractName];
     return [...new Set(request.payload.items.map((item) => item.contractName))];
 }
 function assertNoDuplicateContractDeclarations(declarations) {
@@ -54,7 +52,7 @@ function assertRequiredContractsUploaded(request, declarations) {
     const names = new Set(declarations.map((item) => item.name));
     const missing = requiredUploadedContracts(request).filter((name) => !names.has(name));
     if (missing.length > 0) {
-        const actionLabel = request.action === "deploy-suite" ? "部署整套" : request.action === "upgrade-batch" ? "升级" : "导入基线";
+        const actionLabel = request.action === "deploy-suite" ? "部署整套" : "升级";
         throw new Error(`${actionLabel}前必须在本次上传源码中包含合约声明：${missing.join("、")}。请同时上传目标合约及其全部本地依赖`);
     }
 }

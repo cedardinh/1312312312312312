@@ -84,7 +84,7 @@ export type UpgradeRecord = {
 };
 
 export type EngineRecord = {
-  action: "deploy-suite" | "upgrade-batch" | "import-baseline";
+  action: "deploy-suite" | "upgrade-batch";
   status?: "running" | "succeeded" | "failed";
   chainId?: number;
   admin?: string;
@@ -94,12 +94,6 @@ export type EngineRecord = {
   checks?: string[];
   deployments?: ContractRecord[];
   upgrades?: UpgradeRecord[];
-  importedBaseline?: {
-    contractName: string;
-    proxyAddress: string;
-    implementationAddress: string;
-    bytecodeVerified: true;
-  };
   transactions: TransactionRecord[];
   error?: { message: string };
 };
